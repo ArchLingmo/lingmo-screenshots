@@ -8,7 +8,8 @@ Comment=Capture, annotate, pin and record the screen
 Comment[pt_BR]=Capture, anote, fixe e grave a tela
 Keywords=screenshot;capture;print;annotate;ocr;record;ask;ai;circle;search;translate;
 Keywords[pt_BR]=captura;tela;print;anotar;texto;ocr;gravar;perguntar;ia;circular;pesquisar;traduzir;
-Exec=lingmo-screenshot launcher
+# Absolute path: on Wayland KWin matches the caller's executable against Exec
+Exec=/usr/bin/lingmo-screenshot launcher
 Icon=lingmo-screenshot
 Terminal=false
 Type=Application
@@ -16,6 +17,11 @@ StartupNotify=false
 Categories=Utility;
 Actions=Capture;AskScreen;FullScreen;Record;History;
 X-Lingmo-Intents=screenshot.capture;screen.record.start;screen.record.stop;screenshot.ocr;screen.ask;
+# Wayland: KWin hands screen captures (org.kde.KWin.ScreenShot2) only to programs
+# that ask for them here
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+# KWin hands its screencast protocol (screen recording) only to clients listing it
+X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1
 
 [Desktop Action Capture]
 Name=New capture

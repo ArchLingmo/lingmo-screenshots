@@ -19,6 +19,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import LingmoUI.CompatibleModule 3.0 as LingmoUI
+import Lingmo.System 1.0
 
 ColumnLayout {
     id: page
@@ -373,6 +374,12 @@ ColumnLayout {
             SectionCard {
                 heading: qsTr("Screen recording")
 
+                SessionHint {
+                    session: "x11"
+                    visible: !app.canRecord()
+                    text: qsTr("Not available in the Wayland session yet")
+                    Layout.fillWidth: true
+                }
                 SettingRow {
                     title: qsTr("Format")
                     subtitle: qsTr("GIF has no sound.")
@@ -400,6 +407,8 @@ ColumnLayout {
                     Switch { checked: config.recordSystemAudio; onToggled: config.recordSystemAudio = checked }
                 }
                 SettingRow {
+                    // XInput 2: X11 only
+                    visible: Session.supports("x11")
                     title: qsTr("Show clicks")
                     Switch { checked: config.recordShowClicks; onToggled: config.recordShowClicks = checked }
                 }

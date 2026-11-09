@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(lingmo-screenshot LANGUAGES CXX)
+# C: the Wayland protocol glue qtwaylandscanner generates
+project(lingmo-screenshot LANGUAGES C CXX)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -18,6 +19,10 @@ option(BUILD_TESTING "Build the unit tests" ON)
 find_package(Qt6 CONFIG REQUIRED COMPONENTS Core DBus Gui Widgets Quick LinguistTools)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb xcb-xinput xcb-xtest)
+# Wayland: the capture overlay is a layer-shell surface
+find_package(LayerShellQt REQUIRED)
+# Wayland: screen recording through KWin's screencast protocol
+find_package(Qt6 REQUIRED COMPONENTS WaylandClient)
 
 # Image logic without any window: shared by the app and the unit tests.
 add_library(screenshot-core STATIC
@@ -45,6 +50,8 @@ set(PROJECT_SOURCES
     src/config.cpp
     src/historymodel.cpp
     src/itemwindow.cpp
+    src/kwinscreenshot.cpp
+    src/kwinscreencast.cpp
     src/notifier.cpp
     src/pinwindow.cpp
     src/screenask.cpp
@@ -58,6 +65,16 @@ add_executable(lingmo-screenshot
   ${PROJECT_SOURCES}
 )
 
+# zkde_screencast_unstable_v1: from plasma-wayland-protocols when installed, else
+# the copy kept here (LGPL-2.1-or-later)
+find_package(PlasmaWaylandProtocols QUIET)
+if (PlasmaWaylandProtocols_FOUND)
+    set(SCREENCAST_XML "${PLASMA_WAYLAND_PROTOCOLS_DIR}/zkde-screencast-unstable-v1.xml")
+else()
+    set(SCREENCAST_XML "${CMAKE_CURRENT_SOURCE_DIR}/src/protocols/zkde-screencast-unstable-v1.xml")
+endif()
+qt6_generate_wayland_protocol_client_sources(lingmo-screenshot FILES "${SCREENCAST_XML}")
+
 target_link_libraries(lingmo-screenshot
   PRIVATE
   screenshot-core
@@ -67,6 +84,8 @@ target_link_libraries(lingmo-screenshot
   Qt6::Widgets
   Qt6::Quick
   PkgConfig::XCB
+  LayerShellQt::Interface
+  Qt6::WaylandClient
 )
 
 # Lingmo Intents: screenshot.capture, screen.record.start/stop, screenshot.ocr

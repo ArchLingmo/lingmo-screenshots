@@ -145,33 +145,55 @@
 <context>
     <name>Application</name>
     <message>
-        <location filename="../src/application.cpp" line="+160"/>
+        <location filename="../src/application.cpp" line="+202"/>
         <location line="+4"/>
+        <location line="+184"/>
+        <location line="+202"/>
+        <location line="+0"/>
         <source>Scrolling capture</source>
         <translation>Captura com rolagem</translation>
     </message>
     <message>
-        <location line="+212"/>
+        <location line="-120"/>
         <source>There is no screen %1.</source>
         <translation>Não existe a tela %1.</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+9"/>
         <source>No active window was found.</source>
         <translation>Nenhuma janela ativa foi encontrada.</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="-68"/>
+        <location line="+1"/>
+        <location line="+75"/>
         <source>Unable to capture the screen.</source>
         <translation>Não foi possível capturar a tela.</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="-195"/>
+        <source>%1 is not available in the Wayland session yet.</source>
+        <translation>%1 ainda não está disponível na sessão Wayland.</translation>
+    </message>
+    <message>
+        <location line="+96"/>
+        <location line="+225"/>
+        <location line="+0"/>
+        <source>Screen recording</source>
+        <translation>Gravação de tela</translation>
+    </message>
+    <message>
+        <location line="-201"/>
+        <source>Screenshot</source>
+        <translation>Captura de tela</translation>
+    </message>
+    <message>
+        <location line="+160"/>
         <source>Edit screenshot</source>
         <translation>Editar captura</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+143"/>
         <source>Unable to create the folder %1.</source>
         <translation>Não foi possível criar a pasta %1.</translation>
     </message>
@@ -426,12 +448,12 @@
 <context>
     <name>CaptureController</name>
     <message>
-        <location filename="../src/capturecontroller.cpp" line="+91"/>
+        <location filename="../src/capturecontroller.cpp" line="+100"/>
         <source>Screenshot</source>
         <translation>Captura de tela</translation>
     </message>
     <message>
-        <location line="+260"/>
+        <location line="+275"/>
         <source>The application was not found.</source>
         <translation>O aplicativo não foi encontrado.</translation>
     </message>
@@ -591,7 +613,7 @@
 <context>
     <name>CapturePage</name>
     <message>
-        <location filename="../qml/CapturePage.qml" line="+29"/>
+        <location filename="../qml/CapturePage.qml" line="+30"/>
         <source>Area</source>
         <translation>Área</translation>
     </message>
@@ -671,7 +693,12 @@
         <translation>Parar</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+68"/>
+        <source>Not available in the Wayland session yet</source>
+        <translation>Ainda não disponível na sessão Wayland</translation>
+    </message>
+    <message>
+        <location line="+29"/>
         <source>Delay</source>
         <translation>Atraso</translation>
     </message>
@@ -1148,7 +1175,7 @@ Opções:
 <context>
     <name>ModeBar</name>
     <message>
-        <location filename="../qml/ModeBar.qml" line="+53"/>
+        <location filename="../qml/ModeBar.qml" line="+54"/>
         <source>Photo</source>
         <translation>Foto</translation>
     </message>
@@ -1156,6 +1183,11 @@ Opções:
         <location line="+0"/>
         <source>Video</source>
         <translation>Vídeo</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Screen recording is not available in the Wayland session yet.</source>
+        <translation>A gravação de tela ainda não está disponível na sessão Wayland.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -1351,7 +1383,7 @@ Opções:
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../src/screenshotintents.cpp" line="+46"/>
+        <location filename="../src/screenshotintents.cpp" line="+45"/>
         <source>There is no screen %1.</source>
         <translation>Não existe a tela %1.</translation>
     </message>
@@ -1361,17 +1393,22 @@ Opções:
         <translation>Área inválida, use LARGURAxALTURA+X+Y.</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+17"/>
         <source>No active window was found.</source>
         <translation>Nenhuma janela ativa foi encontrada.</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+5"/>
         <source>Unable to capture the screen.</source>
         <translation>Não foi possível capturar a tela.</translation>
     </message>
     <message>
         <location line="+19"/>
+        <source>Screen recording</source>
+        <translation>Gravação de tela</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Another screen recording is already in progress.</source>
         <translation>Já há outra gravação de tela em andamento.</translation>
     </message>
@@ -1545,6 +1582,10 @@ Opções:
         <translation>O FFmpeg não foi encontrado. Instale o pacote ffmpeg para gravar a tela.</translation>
     </message>
     <message>
+        <source>Recording the screen needs GStreamer&apos;s PipeWire plugin. Install the gst-plugin-pipewire package.</source>
+        <translation>Gravar a tela precisa do plugin PipeWire do GStreamer. Instale o pacote gst-plugin-pipewire.</translation>
+    </message>
+    <message>
         <location line="+14"/>
         <source>The selected area is too small to be recorded.</source>
         <translation>A área selecionada é pequena demais para ser gravada.</translation>
@@ -1660,7 +1701,7 @@ Opções:
 <context>
     <name>SettingsPage</name>
     <message>
-        <location filename="../qml/SettingsPage.qml" line="+53"/>
+        <location filename="../qml/SettingsPage.qml" line="+54"/>
         <source>Settings</source>
         <translation>Configurações</translation>
     </message>
@@ -1671,18 +1712,18 @@ Opções:
     </message>
     <message>
         <location line="+3"/>
-        <location line="+324"/>
+        <location line="+329"/>
         <source>Folder</source>
         <translation>Pasta</translation>
     </message>
     <message>
-        <location line="-319"/>
-        <location line="+323"/>
+        <location line="-324"/>
+        <location line="+328"/>
         <source>Open the folder</source>
         <translation>Abrir a pasta</translation>
     </message>
     <message>
-        <location line="-319"/>
+        <location line="-324"/>
         <source>Change…</source>
         <translation>Alterar…</translation>
     </message>
@@ -1708,12 +1749,12 @@ Opções:
     </message>
     <message>
         <location line="+8"/>
-        <location line="+249"/>
+        <location line="+254"/>
         <source>Format</source>
         <translation>Formato</translation>
     </message>
     <message>
-        <location line="-240"/>
+        <location line="-245"/>
         <source>Copy to the clipboard when saving</source>
         <translation>Copiar para a área de transferência ao salvar</translation>
     </message>
@@ -1879,6 +1920,11 @@ Opções:
     </message>
     <message>
         <location line="+4"/>
+        <source>Not available in the Wayland session yet</source>
+        <translation>Ainda não disponível na sessão Wayland</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>GIF has no sound.</source>
         <translation>GIF não tem som.</translation>
     </message>
@@ -2000,6 +2046,13 @@ Opções:
         <location line="+9"/>
         <source>Screenshot</source>
         <translation>Captura de tela</translation>
+    </message>
+</context>
+<context>
+    <name>KWinScreencast</name>
+    <message>
+        <source>The compositor does not offer screen recording.</source>
+        <translation>O compositor não oferece gravação de tela.</translation>
     </message>
 </context>
 </TS>

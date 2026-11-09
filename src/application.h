@@ -73,6 +73,15 @@ public:
     static QImage grabAllScreens(QRect *bounds);
     static QImage grabOneScreen(QScreen *screen);
     static QRect nativeGeometryOf(const QScreen *screen);
+    // A global (root window; Wayland: logical) rectangle of the screens
+    static QImage grabArea(const QRect &rect);
+    // The focused window with its decorations; null when there is none
+    static QImage grabActiveWindow(QString *title);
+    // Recording and the scrolling capture (ffmpeg x11grab, XTest) work on X11
+    // only for now; on Wayland they say so (notOnWaylandText)
+    static bool recordingSupported();
+    static bool scrollCaptureSupported();
+    static QString notOnWaylandText(const QString &feature);
 
     // Runs a request. Returns false when the process should exit at once
     // with an error (already reported on stderr).
@@ -123,6 +132,8 @@ public:
     // From the launcher: capture after hiding it.
     Q_INVOKABLE void captureFromLauncher(const QString &mode, int delaySeconds);
     Q_INVOKABLE void stopRecording();
+    // Recording works in this session (Wayland: KWin's screencast and GStreamer)
+    Q_INVOKABLE bool canRecord() const { return recordingSupported(); }
     Q_INVOKABLE QString recordingsFolder() const;
     Q_INVOKABLE void openRecordingsFolder();
 

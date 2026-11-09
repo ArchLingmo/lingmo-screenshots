@@ -19,6 +19,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import LingmoUI.CompatibleModule 3.0 as LingmoUI
+import Lingmo.System 1.0
 
 // New capture: what to capture and when.
 ColumnLayout {
@@ -94,7 +95,11 @@ ColumnLayout {
                         implicitHeight: tileColumn.implicitHeight + LingmoUI.Units.largeSpacing * 3
                         clickable: true
                         liftOnHover: true
-                        enabled: modelData.mode !== "record" || !app.recording
+                        // Wayland: the scrolling capture is X11 only for now; recording goes
+                        // through KWin's screencast when GStreamer's PipeWire plugin is there
+                        readonly property bool x11Only: modelData.mode === "scroll" ? !Session.supports("x11")
+                                                      : modelData.mode === "record" && !app.canRecord()
+                        enabled: (modelData.mode !== "record" || !app.recording) && !x11Only
                         opacity: enabled ? 1 : 0.5
 
                         Accessible.role: Accessible.Button
@@ -129,6 +134,13 @@ ColumnLayout {
                                 wrapMode: Text.WordWrap
                                 maximumLineCount: 2
                                 elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+
+                            SessionHint {
+                                session: "x11"
+                                visible: tile.x11Only
+                                text: qsTr("Not available in the Wayland session yet")
                                 Layout.fillWidth: true
                             }
                         }

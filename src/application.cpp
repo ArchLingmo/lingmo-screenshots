@@ -24,6 +24,7 @@
 #include "capturesession.h"
 #include "config.h"
 #include "historymodel.h"
+#include "kwinscreenshot.h"
 #include "notifier.h"
 #include "ocr.h"
 #include "pinwindow.h"
@@ -75,14 +76,21 @@ QRect nativeGeometry(const QScreen *screen)
 
 QImage grabScreen(QScreen *screen)
 {
+    // Wayland: only the compositor sees the other windows
+    if (KWinScreenShot::enabled())
+        return KWinScreenShot::screen(screen);
     QImage image = screen->grabWindow(0).toImage();
     image.setDevicePixelRatio(1);
     return image;
 }
 
-// All screens in one image, in root window coordinates.
+// All screens in one image, in root window coordinates (Wayland: logical
+// bounds, native pixels).
 QImage grabAll(QRect *bounds)
 {
+    if (KWinScreenShot::enabled())
+        return KWinScreenShot::workspace(bounds);
+
     QRect all;
     for (QScreen *s : QGuiApplication::screens())
         all |= nativeGeometry(s);
@@ -99,10 +107,44 @@ QImage grabAll(QRect *bounds)
     return image;
 }
 
+// Wayland: Qt only knows the pointer over its own windows, KWin knows it everywhere.
+QScreen *screenOf(const KWinScreenShot::State &state)
+{
+    if (state.valid) {
+        if (QScreen *s = QGuiApplication::screenAt(state.cursor))
+            return s;
+        for (QScreen *s : QGuiApplication::screens()) {
+            if (s->name() == state.activeScreen)
+                return s;
+        }
+    }
+    return qGuiApp->primaryScreen();
+}
+
 QScreen *screenUnderPointer()
 {
+    if (KWinScreenShot::enabled())
+        return screenOf(KWinScreenShot::state());
     QScreen *s = QGuiApplication::screenAt(QCursor::pos());
     return s ? s : qGuiApp->primaryScreen();
+}
+
+// Wayland: KWin's windows (logical) in image pixels of the screen.
+QList<CaptureSession::WindowInfo> windowsOn(const KWinScreenShot::State &state, const QScreen *screen, const QRect &native)
+{
+    QList<CaptureSession::WindowInfo> list;
+    const QPoint origin = screen->geometry().topLeft();
+    const qreal dpr = screen->devicePixelRatio();
+    for (const KWinScreenShot::Window &w : state.windows) {
+        const QRect r = w.rect.translated(-origin);
+        CaptureSession::WindowInfo info;
+        info.rect = QRect((QPointF(r.topLeft()) * dpr).toPoint(), (QSizeF(r.size()) * dpr).toSize())
+                            .intersected(QRect(QPoint(0, 0), native.size()));
+        info.title = w.title;
+        if (!info.rect.isEmpty())
+            list.append(info);
+    }
+    return list;
 }
 
 QList<CaptureSession::WindowInfo> windowsOn(const QRect &native)
@@ -217,6 +259,48 @@ QImage Application::grabAllScreens(QRect *bounds) { return grabAll(bounds); }
 QImage Application::grabOneScreen(QScreen *screen) { return grabScreen(screen); }
 QRect Application::nativeGeometryOf(const QScreen *screen) { return nativeGeometry(screen); }
 
+QImage Application::grabArea(const QRect &rect)
+{
+    if (KWinScreenShot::enabled())
+        return KWinScreenShot::area(rect);
+    QRect bounds;
+    const QImage all = grabAll(&bounds);
+    return all.copy(rect.translated(-bounds.topLeft()).intersected(QRect(QPoint(0, 0), bounds.size())));
+}
+
+QImage Application::grabActiveWindow(QString *title)
+{
+    if (KWinScreenShot::enabled()) {
+        const QImage image = KWinScreenShot::activeWindow();
+        if (!image.isNull() && title)
+            *title = KWinScreenShot::state().activeTitle;
+        return image;
+    }
+    X11Windows::Window window;
+    if (!X11Windows::activeWindow(&window))
+        return QImage();
+    if (title)
+        *title = window.title;
+    return grabArea(window.rect);
+}
+
+bool Application::recordingSupported()
+{
+    // Wayland: KWin's screencast stream, recorded with GStreamer
+    return !KWinScreenShot::enabled() || ScreenRecorder::waylandRecordingAvailable();
+}
+
+bool Application::scrollCaptureSupported()
+{
+    // XTest scrolling and x11grab frames: X11 only
+    return !KWinScreenShot::enabled();
+}
+
+QString Application::notOnWaylandText(const QString &feature)
+{
+    return tr("%1 is not available in the Wayland session yet.").arg(feature);
+}
+
 void Application::Run(const QStringList &args)
 {
     CommandLine::Request request;
@@ -308,20 +392,41 @@ void Application::startInteractive(const CommandLine::Request &request)
         }
     }
 
+    // Wayland: scrolling capture needs XTest (not ported yet); recording needs KWin's
+    // screencast and GStreamer's pipewiresrc
+    if ((request.command == CommandLine::Record && !recordingSupported())
+            || (request.command == CommandLine::Scroll && !scrollCaptureSupported())) {
+        const QString feature = request.command == CommandLine::Record ? tr("Screen recording") : tr("Scrolling capture");
+        fprintf(stderr, "%s\n", qPrintable(notOnWaylandText(feature)));
+        m_notifier->notify(feature, notOnWaylandText(feature));
+        checkQuit();
+        return;
+    }
+
     ++m_pending;
     QTimer::singleShot(qMax(0, request.delayMs), this, [this, request] {
         --m_pending;
 
-        QScreen *screen = screenUnderPointer();
+        KWinScreenShot::State kwin;
+        if (KWinScreenShot::enabled())
+            kwin = KWinScreenShot::state();
+        QScreen *screen = KWinScreenShot::enabled() ? screenOf(kwin) : screenUnderPointer();
         if (!request.region.isNull()) {
             if (QScreen *s = QGuiApplication::screenAt(request.region.center()))
                 screen = s;
         }
 
         const QRect native = nativeGeometry(screen);
-        auto *session = new CaptureSession(grabScreen(screen));
+        const QImage image = grabScreen(screen);
+        if (image.isNull()) {
+            fprintf(stderr, "%s\n", qPrintable(tr("Unable to capture the screen.")));
+            m_notifier->notify(tr("Screenshot"), tr("Unable to capture the screen."));
+            checkQuit();
+            return;
+        }
+        auto *session = new CaptureSession(image);
         session->setSource(screen, native);
-        session->setWindows(windowsOn(native));
+        session->setWindows(KWinScreenShot::enabled() ? windowsOn(kwin, screen, native) : windowsOn(native));
         session->setAccept(request.path, request.clipboard, request.pin);
 
         if (request.command == CommandLine::Window)
@@ -381,16 +486,12 @@ bool Application::captureNow(const CommandLine::Request &request)
             }
             image = grabScreen(screen);
         } else {
-            X11Windows::Window window;
-            if (!X11Windows::activeWindow(&window)) {
+            if (!KWinScreenShot::enabled() && !X11Windows::activeWindow(nullptr)) {
                 fprintf(stderr, "%s\n", qPrintable(tr("No active window was found.")));
                 QCoreApplication::exit(1);
                 return;
             }
-            QRect bounds;
-            const QImage all = grabAll(&bounds);
-            image = all.copy(window.rect.translated(-bounds.topLeft()).intersected(QRect(QPoint(0, 0), bounds.size())));
-            context.windowTitle = window.title;
+            image = grabActiveWindow(&context.windowTitle);
         }
 
         if (image.isNull()) {
@@ -496,6 +597,11 @@ void Application::startScrollCapture(QScreen *screen, const QRect &nativeRect, i
 {
     if (!screen)
         return;
+    if (!scrollCaptureSupported()) {
+        m_notifier->notify(tr("Scrolling capture"), notOnWaylandText(tr("Scrolling capture")));
+        checkQuit();
+        return;
+    }
 
     if (delayMs > 0) {
         ++m_pending;
@@ -514,6 +620,11 @@ void Application::startRecording(QScreen *screen, const QRect &nativeRect, int d
 {
     if (!screen)
         return;
+    if (!recordingSupported()) {
+        m_notifier->notify(tr("Screen recording"), notOnWaylandText(tr("Screen recording")));
+        checkQuit();
+        return;
+    }
 
     if (delayMs > 0) {
         ++m_pending;

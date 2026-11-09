@@ -19,6 +19,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import LingmoUI.CompatibleModule 3.0 as LingmoUI
+import Lingmo.System 1.0
 
 // Top of the overlay: photo or video, and what to capture.
 LingmoUI.Card {
@@ -53,6 +54,11 @@ LingmoUI.Card {
             model: [{ text: qsTr("Photo"), iconName: "camera-photo" }, { text: qsTr("Video"), iconName: "media-record" }]
             currentIndex: editor.videoMode ? 1 : 0
             onActivated: (index) => {
+                // Recording unavailable in this session (the control keeps "Photo")
+                if (index === 1 && !app.canRecord()) {
+                    view.message(qsTr("Screen recording is not available in the Wayland session yet."), false)
+                    return
+                }
                 editor.videoMode = index === 1
                 editor.setTool("select")
             }

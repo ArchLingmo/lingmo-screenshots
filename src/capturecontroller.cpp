@@ -37,6 +37,8 @@
 #include <QTimer>
 #include <QLoggingCategory>
 
+#include <LayerShellQt/Window>
+
 Q_LOGGING_CATEGORY(lcCapture, "lingmo.screenshot.capture", QtInfoMsg)
 
 namespace {
@@ -44,6 +46,13 @@ namespace {
 // Time for the X server to take the overlay off the screen before something
 // else grabs it (recording, scrolling capture).
 const int HIDE_DELAY = 300;
+
+// The overlay is a layer-shell surface (native Wayland); through XWayland
+// it stays a window that bypasses the window manager.
+bool waylandOverlay()
+{
+    return QGuiApplication::platformName() == QLatin1String("wayland");
+}
 
 QJsonArray annotationsRelativeTo(const AnnotationModel *model, const QPoint &origin)
 {
@@ -89,10 +98,24 @@ void CaptureController::showOverlay(QScreen *screen)
 
     m_view = new ItemWindow;
     m_view->setTitle(tr("Screenshot"));
-    m_view->setFlags(Qt::FramelessWindowHint | Qt::X11BypassWindowManagerHint);
     m_view->setColor(Qt::black);
     m_view->setScreen(screen);
     m_view->setGeometry(screen->geometry());
+    if (waylandOverlay()) {
+        // Wayland: a layer-shell surface over everything (bar and dock too) on
+        // this screen, the whole output, with the keyboard
+        m_view->setFlags(Qt::FramelessWindowHint);
+        auto *layer = LayerShellQt::Window::get(m_view);
+        layer->setScope(QStringLiteral("lingmo-screenshot"));
+        layer->setLayer(LayerShellQt::Window::LayerOverlay);
+        layer->setAnchors(LayerShellQt::Window::Anchors(LayerShellQt::Window::AnchorTop | LayerShellQt::Window::AnchorBottom
+                                                        | LayerShellQt::Window::AnchorLeft | LayerShellQt::Window::AnchorRight));
+        layer->setExclusiveZone(-1);
+        layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityExclusive);
+        layer->setScreen(screen);
+    } else {
+        m_view->setFlags(Qt::FramelessWindowHint | Qt::X11BypassWindowManagerHint);
+    }
 
     QObject *object = Application::instance()->createQml(
             QStringLiteral("qrc:/qml/Overlay.qml"),
@@ -111,7 +134,8 @@ void CaptureController::showOverlay(QScreen *screen)
 
     m_view->show();
     m_view->requestActivate();
-    m_view->setKeyboardGrabEnabled(true);
+    if (!waylandOverlay())
+        m_view->setKeyboardGrabEnabled(true);
 }
 
 void CaptureController::showEditor(const QString &title)
@@ -504,7 +528,8 @@ void CaptureController::playSound()
 void CaptureController::hideForDialog()
 {
     if (m_view) {
-        m_view->setKeyboardGrabEnabled(false);
+        if (!waylandOverlay())
+            m_view->setKeyboardGrabEnabled(false);
         m_view->hide();
     } else if (m_editorWindow) {
         // The editor stays: dialogs open on top of normal windows.
@@ -517,7 +542,8 @@ void CaptureController::showAgain()
     if (m_view && !m_closing) {
         m_view->show();
         m_view->requestActivate();
-        m_view->setKeyboardGrabEnabled(true);
+        if (!waylandOverlay())
+            m_view->setKeyboardGrabEnabled(true);
     }
 }
 
@@ -528,7 +554,8 @@ void CaptureController::close()
     m_closing = true;
 
     if (m_view) {
-        m_view->setKeyboardGrabEnabled(false);
+        if (!waylandOverlay())
+            m_view->setKeyboardGrabEnabled(false);
         m_view->hide();
     }
     if (m_editorWindow)

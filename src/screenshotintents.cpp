@@ -5,7 +5,6 @@
 #include "filenamepattern.h"
 #include "ocr.h"
 #include "screenrecorder.h"
-#include "x11windows.h"
 
 #include <LingmoIntents/intentservice.h>
 
@@ -56,19 +55,14 @@ void capture(Application *app, const IntentCall &call)
         FileNamePattern::Context context;
         context.time = QDateTime::currentDateTime();
         QImage image;
-        if (mode == QLatin1String("full") || mode == QLatin1String("area")) {
-            QRect bounds;
-            image = Application::grabAllScreens(&bounds);
-            if (mode == QLatin1String("area"))
-                image = image.copy(region.translated(-bounds.topLeft()).intersected(QRect(QPoint(0, 0), bounds.size())));
+        if (mode == QLatin1String("full")) {
+            image = Application::grabAllScreens(nullptr);
+        } else if (mode == QLatin1String("area")) {
+            image = Application::grabArea(region);
         } else if (mode == QLatin1String("window")) {
-            X11Windows::Window window;
-            if (!X11Windows::activeWindow(&window))
+            image = Application::grabActiveWindow(&context.windowTitle);
+            if (image.isNull())
                 return call.finish(IntentResult::failed(QObject::tr("No active window was found.")));
-            QRect bounds;
-            const QImage all = Application::grabAllScreens(&bounds);
-            image = all.copy(window.rect.translated(-bounds.topLeft()).intersected(QRect(QPoint(0, 0), bounds.size())));
-            context.windowTitle = window.title;
         } else {
             image = Application::grabOneScreen(screenAt(screenIndex));
         }
@@ -91,6 +85,8 @@ void capture(Application *app, const IntentCall &call)
 
 void recordStart(Application *app, const IntentCall &call)
 {
+    if (!Application::recordingSupported())
+        return call.finish(IntentResult::failed(Application::notOnWaylandText(QObject::tr("Screen recording"))));
     if (app->recorder()->isRecording())
         return call.finish(IntentResult::failed(QObject::tr("Another screen recording is already in progress.")));
     const QVariantMap p = call.params();

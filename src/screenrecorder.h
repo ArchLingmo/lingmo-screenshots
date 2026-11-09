@@ -29,6 +29,7 @@ class QScreen;
 class QTimer;
 class ItemWindow;
 class QSystemTrayIcon;
+class KWinScreencast;
 
 #define RECORDER_SERVICE "com.lingmo.ScreenRecorder"
 #define RECORDER_PATH "/Recorder"
@@ -65,6 +66,11 @@ public:
                                        const QString &fileName);
     static QString defaultMonitorSource();
     static QStringList gifArguments(const QString &input, const QString &output);
+    // Wayland: gst-launch-1.0 reading KWin's PipeWire stream (target: its serial or node)
+    static QStringList gstArguments(const QString &target, const QSize &size, const Options &options,
+                                    const QString &monitorSource, const QString &fileName);
+    // Wayland recording works: KWin's screencast and GStreamer's pipewiresrc are there
+    static bool waylandRecordingAvailable();
 
     // Asks a recorder running in another process to stop.
     static bool stopRunningRecording();
@@ -97,6 +103,7 @@ private slots:
 
 private:
     void showIndicator();
+    void showTrayIcon();
     void hideIndicator();
     void showError(const QString &message);
     void notifySaved();
@@ -104,6 +111,7 @@ private:
     void finish();
     void showClicks(bool enable);
     void convertToGif();
+    void startRecorderProcess(const QString &program, const QStringList &args);
 
 private:
     QProcess *m_process;
@@ -126,6 +134,10 @@ private:
     QSystemTrayIcon *m_trayIcon;
 
     uint m_notificationId;
+
+    // Wayland: the stream KWin gives (GStreamer records it); X11: ffmpeg x11grab
+    bool m_wayland = false;
+    KWinScreencast *m_screencast = nullptr;
 };
 
 #endif // SCREENRECORDER_H

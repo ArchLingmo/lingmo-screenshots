@@ -16,6 +16,7 @@
  */
 
 #include "screenrecorder.h"
+#include "kwinscreencast.h"
 #include "x11windows.h"
 
 #include <QGuiApplication>
@@ -158,7 +159,11 @@ ScreenRecorder::~ScreenRecorder()
     showClicks(false);
 
     if (m_process && m_process->state() != QProcess::NotRunning) {
-        m_process->write("q");
+        // ffmpeg quits on "q"; gst-launch -e finishes the file on SIGINT
+        if (m_wayland)
+            ::kill(m_process->processId(), SIGINT);
+        else
+            m_process->write("q");
         if (!m_process->waitForFinished(STOP_TIMEOUT))
             m_process->kill();
     }
@@ -243,6 +248,61 @@ QStringList ScreenRecorder::gifArguments(const QString &input, const QString &ou
              QStringLiteral("-loop"), QStringLiteral("0"), output };
 }
 
+// GStreamer quotes values with spaces itself: gst-launch joins its arguments
+static QString gstQuoted(const QString &value)
+{
+    QString escaped = value;
+    escaped.replace(QLatin1Char('\\'), QStringLiteral("\\\\")).replace(QLatin1Char('"'), QStringLiteral("\\\""));
+    return QLatin1Char('"') + escaped + QLatin1Char('"');
+}
+
+QStringList ScreenRecorder::gstArguments(const QString &target, const QSize &size, const Options &options,
+                                         const QString &monitorSource, const QString &fileName)
+{
+    QStringList pipeline;
+    // The same file as ffmpeg's on X11: H.264 (x264, veryfast, quality 23) and AAC in MP4
+    pipeline << QStringLiteral("pipewiresrc target-object=%1 do-timestamp=true keepalive-time=1000 always-copy=true").arg(target)
+             << QStringLiteral("! videoconvert ! videoscale ! videorate")
+             << QStringLiteral("! video/x-raw,format=I420,width=%1,height=%2,framerate=%3/1")
+                    .arg(size.width()).arg(size.height()).arg(options.frameRate)
+             << QStringLiteral("! queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000")
+             << QStringLiteral("! x264enc speed-preset=veryfast pass=quant quantizer=23 ! video/x-h264,profile=high")
+             << QStringLiteral("! h264parse ! queue ! mux.");
+
+    QStringList sources;
+    if (options.microphone)
+        sources << QStringLiteral("pulsesrc do-timestamp=true");
+    if (options.systemAudio)
+        sources << QStringLiteral("pulsesrc device=%1 do-timestamp=true").arg(gstQuoted(monitorSource));
+    const QString encode = QStringLiteral("audioconvert ! audioresample ! avenc_aac bitrate=160000 ! aacparse ! queue ! mux.");
+    if (sources.size() == 2) {
+        pipeline << QStringLiteral("audiomixer name=amix ! ") + encode;
+        for (const QString &source : sources)
+            pipeline << source + QStringLiteral(" ! queue ! audioconvert ! audioresample ! amix.");
+    } else if (sources.size() == 1) {
+        pipeline << sources.first() + QStringLiteral(" ! queue ! ") + encode;
+    }
+
+    pipeline << QStringLiteral("mp4mux name=mux faststart=true ! filesink location=%1").arg(gstQuoted(fileName));
+
+    QStringList args{QStringLiteral("-e"), QStringLiteral("-q")};
+    for (const QString &part : pipeline)
+        args += part.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    return args;
+}
+
+bool ScreenRecorder::waylandRecordingAvailable()
+{
+    static const bool gst = [] {
+        if (QStandardPaths::findExecutable(QStringLiteral("gst-launch-1.0")).isEmpty())
+            return false;
+        QProcess inspect;
+        inspect.start(QStringLiteral("gst-inspect-1.0"), {QStringLiteral("--exists"), QStringLiteral("pipewiresrc")});
+        return inspect.waitForFinished(5000) && inspect.exitStatus() == QProcess::NormalExit && inspect.exitCode() == 0;
+    }();
+    return gst && KWinScreencast::available();
+}
+
 bool ScreenRecorder::busy() const
 {
     return m_busy;
@@ -268,9 +328,11 @@ void ScreenRecorder::start(QScreen *screen, const QRect &rect, const Options &op
     m_failed = false;
     m_errorOutput.clear();
 
+    m_wayland = QGuiApplication::platformName().startsWith(QLatin1String("wayland"));
     const QString ffmpeg = QStandardPaths::findExecutable("ffmpeg");
-    if (ffmpeg.isEmpty()) {
-        showError(tr("FFmpeg was not found. Install the ffmpeg package to record the screen."));
+    if (m_wayland ? !waylandRecordingAvailable() : ffmpeg.isEmpty()) {
+        showError(m_wayland ? tr("Recording the screen needs GStreamer's PipeWire plugin. Install the gst-plugin-pipewire package.")
+                            : tr("FFmpeg was not found. Install the ffmpeg package to record the screen."));
         return;
     }
 
@@ -307,14 +369,42 @@ void ScreenRecorder::start(QScreen *screen, const QRect &rect, const Options &op
     for (int i = 2; QFile::exists(m_fileName); ++i)
         m_fileName = QDir(dirPath).filePath(QString("%1 (%2).mp4").arg(baseName).arg(i));
 
+    const QString monitor = options.systemAudio ? defaultMonitorSource() : QString();
+
+    if (m_wayland) {
+        // KWin streams the area (logical coordinates, at the screen's own pixels);
+        // GStreamer starts once the PipeWire stream is there
+        const qreal dpr = screen ? screen->devicePixelRatio() : 1.0;
+        const QPoint origin = screen ? screen->geometry().topLeft() : QPoint();
+        const QRect logical(origin + (m_rect.topLeft() - origin) / dpr, m_rect.size() / dpr);
+        if (!m_screencast)
+            m_screencast = new KWinScreencast(this);
+        m_screencast->disconnect(this);
+        connect(m_screencast, &KWinScreencast::failed, this, [this](const QString &error) {
+            showError(tr("Unable to start the screen recording.") + QStringLiteral("\n\n") + error);
+        });
+        // KWin ended it (an output went away, the screen locked): keep what was recorded
+        connect(m_screencast, &KWinScreencast::closed, this, &ScreenRecorder::stop);
+        connect(m_screencast, &KWinScreencast::ready, this, [this, options, monitor](const QString &target) {
+            if (m_process || m_failed)
+                return;
+            startRecorderProcess(QStandardPaths::findExecutable(QStringLiteral("gst-launch-1.0")),
+                                 gstArguments(target, m_rect.size(), options, monitor, m_fileName));
+        });
+        m_screencast->streamRegion(logical, dpr);
+        return;
+    }
+
     QString display = qEnvironmentVariable("DISPLAY");
     if (display.isEmpty())
         display = ":0";
 
-    const QString monitor = options.systemAudio ? defaultMonitorSource() : QString();
-    const QStringList args = ffmpegArguments(display, m_rect, options, monitor, m_fileName);
+    startRecorderProcess(ffmpeg, ffmpegArguments(display, m_rect, options, monitor, m_fileName));
+}
 
-    qCInfo(lcRecorder).noquote() << "Running:" << ffmpeg << args.join(' ');
+void ScreenRecorder::startRecorderProcess(const QString &program, const QStringList &args)
+{
+    qCInfo(lcRecorder).noquote() << "Running:" << program << args.join(' ');
 
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::SeparateChannels);
@@ -325,7 +415,7 @@ void ScreenRecorder::start(QScreen *screen, const QRect &rect, const Options &op
         m_errorOutput += m_process->readAllStandardError();
         m_errorOutput = m_errorOutput.right(4096);
     });
-    m_process->start(ffmpeg, args);
+    m_process->start(program, args);
 }
 
 int ScreenRecorder::elapsed() const
@@ -359,8 +449,14 @@ void ScreenRecorder::stop()
     showClicks(false);
     hideIndicator();
 
-    // Ask ffmpeg to quit so that the mp4 gets finalized.
-    m_process->write("q");
+    // Ask the recorder to quit so that the mp4 gets finalized: ffmpeg on "q",
+    // gst-launch -e on SIGINT (it sends end-of-stream down the pipeline)
+    if (m_wayland) {
+        m_process->setProperty("interrupted", true);
+        ::kill(m_process->processId(), SIGINT);
+    } else {
+        m_process->write("q");
+    }
     m_killTimer->start();
 }
 
@@ -386,7 +482,9 @@ void ScreenRecorder::onFinished(int exitCode, QProcess::ExitStatus exitStatus)
     showClicks(false);
     hideIndicator();
 
-    qCInfo(lcRecorder) << "ffmpeg finished, exit code" << exitCode << exitStatus;
+    qCInfo(lcRecorder) << "recorder finished, exit code" << exitCode << exitStatus;
+    if (m_screencast)
+        m_screencast->close();
 
     const QFileInfo file(m_fileName);
 
@@ -427,6 +525,9 @@ void ScreenRecorder::showClicks(bool enable)
         return;
 
     if (enable) {
+        // XInput 2 raw events: X11 only
+        if (m_wayland)
+            return;
         if (!X11Windows::selectRawButtonPress(true)) {
             qCWarning(lcRecorder) << "XInput2 is not available, clicks will not be shown";
             return;
@@ -462,6 +563,13 @@ bool ScreenRecorder::nativeEventFilter(const QByteArray &eventType, void *messag
 void ScreenRecorder::showIndicator()
 {
     QScreen *screen = m_screen ? m_screen.data() : qGuiApp->primaryScreen();
+
+    // Wayland: KWin records everything in the area, a floating indicator too, and
+    // won't let it be placed outside: the tray icon (click to stop) is enough
+    if (m_wayland) {
+        showTrayIcon();
+        return;
+    }
 
     if (!m_indicator) {
         m_indicator = new ItemWindow;
@@ -509,6 +617,11 @@ void ScreenRecorder::showIndicator()
     m_indicator->setPosition(pos);
     m_indicator->show();
 
+    showTrayIcon();
+}
+
+void ScreenRecorder::showTrayIcon()
+{
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         if (!m_trayIcon) {
             m_trayIcon = new QSystemTrayIcon(QIcon::fromTheme("media-record", QIcon(":/images/record.svg")), this);
